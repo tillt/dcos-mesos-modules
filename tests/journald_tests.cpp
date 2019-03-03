@@ -31,6 +31,8 @@
 
 #include "common/shell.hpp"
 
+#include "journald/journald.hpp"
+
 #include "module/manager.hpp"
 
 #include "slave/flags.hpp"
@@ -496,6 +498,12 @@ INSTANTIATE_TEST_CASE_P(
 // Then queries journald for the associated logs.
 TEST_P(JournaldLoggerTest, ROOT_LogToJournald)
 {
+  // There should be two loops happening within the logger process.
+  vector<Future<Nothing>> loops = {
+    FUTURE_DISPATCH(_, &JournaldLoggerProcess::loop),
+    FUTURE_DISPATCH(_, &JournaldLoggerProcess::loop)
+  };
+
   // Create a master, agent, and framework.
   Try<Owned<cluster::Master>> master = StartMaster();
   ASSERT_SOME(master);
@@ -581,6 +589,11 @@ TEST_P(JournaldLoggerTest, ROOT_LogToJournald)
 
   driver.stop();
   driver.join();
+
+  // We need to make sure the logger process was able to write its
+  // output. A single loop of the logger process should be sufficient.
+  // Find out when the token refresh reaches a terminal state.
+  AWAIT_READY(collect(loops));
 
   if (GetParam() == "journald" ||
       GetParam() == "journald+logrotate") {

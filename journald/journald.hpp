@@ -172,6 +172,57 @@ struct Flags : public virtual flags::FlagsBase
   Option<std::string> user;
 };
 
+
+class JournaldLoggerProcess : public process::Process<JournaldLoggerProcess>
+{
+public:
+  JournaldLoggerProcess(const Flags& _flags);
+
+  virtual ~JournaldLoggerProcess();
+
+  // Prepares and starts the loop which reads from stdin and writes to
+  // journald or the sandbox, depending on the input flags.
+  Future<Nothing> run();
+
+  // Reads from stdin and writes to journald.
+  void loop();
+
+  // Writes the buffer from stdin to the journald.
+  // Any `flags.journald_labels` will be prepended to each line.
+  Try<Nothing> write_journald(size_t readSize);
+
+  // Writes the buffer from stdin to the leading log file.
+  // When the number of written bytes exceeds `--logrotate_max_size`,
+  // the leading log file is rotated.  When the number of log files
+  // exceed `--max_files`, the oldest log file is deleted.
+  Try<Nothing> write_logrotate(size_t readSize);
+
+  // Calls `logrotate` on the leading log file and resets the `bytesWritten`.
+  void rotate();
+
+private:
+  Flags flags;
+
+  // For reading from stdin.
+  char* buffer;
+  size_t length;
+
+  // For writing and rotating the leading log file.
+  Option<int> leading;
+  size_t bytesWritten;
+
+  // Used as arguments for `sd_journal_sendv`.
+  // This contains one more entry than the number of `--labels`.
+  // The last entry holds a pointer to a stack-allocated C-string,
+  // which is changed each time we write to journald.
+  int num_entries;
+  struct iovec* entries;
+
+  // Used to capture when the logging has completed because the
+  // underlying process/input has terminated.
+  process::Promise<Nothing> promise;
+};
+
 } // namespace logger {
 } // namespace journald {
 } // namespace mesos {
